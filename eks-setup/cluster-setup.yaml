@@ -1,0 +1,163 @@
+#!/bin/bash
+
+Account_Id=$(cat $1 | grep "Account_Id" | cut -d '"' -f2)
+RegionName=$(cat $1 | grep "RegionName" | cut -d '"' -f2)
+ClusterName=$(cat $1 | grep "ClusterName" | cut -d '"' -f2)
+Master_Role_ARN=$(cat $1 | grep "Master_Role_ARN" | cut -d '"' -f2)
+CA_Role=$(cat $1 | grep "CA_Role" | cut -d '"' -f2)
+ALB_Role=$(cat $1 | grep "ALB_Role" | cut -d '"' -f2)
+EFS_Role=$(cat $1 | grep "EFS_Role" | cut -d '"' -f2)
+EFS_ID=$(cat $1 | grep "EFS_ID" | cut -d '"' -f2)
+EBS_Role=$(cat $1 | grep "EBS_Role" | cut -d '"' -f2)
+Project=$(cat $1 | grep "Project" | cut -d '"' -f2)
+Nodeselector=$(cat $1 | grep "NodeSelectorValue" | cut -d '"' -f2)
+
+FluentBitHttpPort='2020'
+FluentBitReadFromHead='Off'
+
+echo "$Account_Id $RegionName $ClusterName  $Master_Role_ARN  $CA_Role  $ALB_Role $EFS_Role $EFS_ID $EBS_Role $Project $Nodeselector"
+
+
+############  Installing Required Packages  ####################### 
+# glibc groff less unzip curl
+
+echo " ############  Installing Required Packages  ####################### "
+
+sudo apt-get update && sudo apt-get install curl unzip git -y
+
+aws --version
+if [ "$?" -ne 0 ];
+then
+echo "AWS CLI is not installed. So Installing AWS CLI ....."
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
+
+aws configure
+
+fi
+
+
+helm version
+if [ "$?" -ne 0 ];
+then
+echo "Helm is not installed. So Installing Helm ....."
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+sudo ./get_helm.sh
+fi
+
+# Role TBOProject_Env_Service_Role
+aws eks update-kubeconfig --name $ClusterName --region $RegionName --role-arn $Master_Role_ARN
+
+echo $HOME
+mkdir -p $HOME/Clusters/$ClusterName
+
+cd $HOME/Clusters/$ClusterName
+
+git clone https://devops_tbo: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@github.com/TTL-EntArch/k8s_deployment.git
+cd k8s_deployment/
+
+echo "###########  Setting Up ArgoCD  ######################"
+
+kubectl create ns argocd
+
+sed -i "s|NodeSelectorValue|$Nodeselector|g" argocd/argocd.yaml
+
+kubectl apply -f argocd/argocd.yaml  -n argocd
+
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "NodePort"}}'
+
+sleep 10
+
+echo "###########  Setting Up HPA  ######################"
+
+
+kubectl create ns monitoring
+kubectl apply -f hpa/
+
+
+echo "###########  Setting Up Cluster AutoScaler  ######################"
+
+sed -i "s|NodeSelectorValue|$Nodeselector|g" cluster_autoscaler/ca.yaml
+sed -i "s|Account_Id|$Account_Id|g" cluster_autoscaler/ca.yaml
+sed -i "s|CA_Role|$CA_Role|g" cluster_autoscaler/ca.yaml
+sed -i "s|ClusterName|$ClusterName|g" cluster_autoscaler/ca.yaml
+kubectl apply -f cluster_autoscaler/ca.yaml 
+
+echo "###########  Setting Up FluentBit  ######################"
+
+kubectl create ns logging
+#kubectl create ns amazon-cloudwatch
+#kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest-templates/deployment-mode/daemonset/container-insights-monitoring/cloudwatch-namespace.yaml
+
+
+[[ ${FluentBitReadFromHead} = 'On' ]] && FluentBitReadFromTail='Off'|| FluentBitReadFromTail='On'
+[[ -z ${FluentBitHttpPort} ]] && FluentBitHttpServer='Off' || FluentBitHttpServer='On'
+kubectl create configmap fluent-bit-cluster-info --from-literal=cluster.name=${ClusterName} --from-literal=http.server=${FluentBitHttpServer} --from-literal=http.port=${FluentBitHttpPort} --from-literal=read.head=${FluentBitReadFromHead} --from-literal=read.tail=${FluentBitReadFromTail} --from-literal=logs.region=${RegionName} -n logging
+
+# kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest-templates/deployment-mode/daemonset/container-insights-monitoring/fluent-bit/fluent-bit.yaml
+# kubectl apply -f fluentd/fluentd.yaml
+kubectl get po -n logging
+
+curl https://raw.githubusercontent.com/aws-observability/aws-otel-collector/main/deployment-template/eks/otel-container-insights-infra.yaml | kubectl apply -f -
+kubectl get po --all-namespaces
+
+sleep 10
+
+echo "###########  Setting Up Ingress  ######################"
+
+sed -i "s|Account_Id|$Account_Id|g" alb/service-account.yaml
+sed -i "s|alb_Role|$ALB_Role|g" alb/service-account.yaml
+
+kubectl apply -f alb/service-account.yaml
+kubectl apply -f alb/cert-manager.yaml
+kubectl get po --all-namespaces
+
+sed -i "s|ClusterName|$ClusterName|g" alb/alb_controller.yaml
+sleep 30
+
+kubectl apply -f alb/alb_controller.yaml
+
+kubectl apply -f alb/ingclass.yaml
+
+echo "###########  Setting Up EFS  ######################"
+
+sed -i "s|Account_Id|$Account_Id|g" efs/service-account.yaml
+sed -i "s|EFS_Role|$EFS_Role|g" efs/service-account.yaml
+
+kubectl apply -f efs/service-account.yaml
+
+kubectl apply -f efs/driver.yaml
+sed -i "s|EFS_ID|$EFS_ID|g" efs/storageclass.yaml
+kubectl apply -f efs/storageclass.yaml
+
+echo "###########  Setting Up KubeCost  ######################"
+
+helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+helm repo update
+# helm upgrade --install aws-ebs-csi-driver     --namespace kube-system --set ebsProvisioner.storageClass.default=gp3    aws-ebs-csi-driver/aws-ebs-csi-driver
+# helm upgrade --install aws-ebs-csi-driver     --namespace kube-system     aws-ebs-csi-driver/aws-ebs-csi-driver
+helm upgrade --install aws-ebs-csi-driver     --namespace kube-system --set enableGp3=true    aws-ebs-csi-driver/aws-ebs-csi-driver
+kubectl annotate sa ebs-csi-controller-sa -n kube-system eks.amazonaws.com/role-arn=arn:aws:iam::$Account_Id:role/$EBS_Role
+kubectl rollout restart deployment ebs-csi-controller -n kube-system
+kubectl apply -f eks-setup/ebs-sc.yaml
+
+sleep 10
+kubectl get pod -n kube-system -l "app.kubernetes.io/name=aws-ebs-csi-driver,app.kubernetes.io/instance=aws-ebs-csi-driver"
+helm upgrade -i kubecost oci://public.ecr.aws/kubecost/cost-analyzer --version 1.101.0 --namespace kubecost --create-namespace -f https://raw.githubusercontent.com/kubecost/cost-analyzer-helm-chart/develop/cost-analyzer/values-eks-cost-monitoring.yaml
+sleep 10
+
+
+kubectl patch svc kubecost-cost-analyzer -n kubecost -p '{"spec": {"type": "NodePort"}}'
+
+Node_IP=$(kubectl get no -o wide | sed -n '2p' | awk '{ print $6 }')
+Argocd_Port=$(kubectl get svc -n argocd | grep "NodePort" | awk '{ print $5 }' | awk -F[:/] '{ print $4 }')
+Argocd_pass=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+echo "ArgoCD_Username=admin" > $Project/$ClusterName-output.txt
+echo "ArgoCD_Password=$Argocd_pass" >> $Project/$ClusterName-output.txt
+echo "Argocd_URL=$Node_IP:$Argocd_Port" >> $Project/$ClusterName-output.txt
+
+Kubecost_Port=$(kubectl get svc -n kubecost | grep "NodePort" | awk '{ print $5 }' | awk -F[:/] '{ print $4 }')
+echo "Kubecost_URL=$Node_IP:$Kubecost_Port" >> $Project/$ClusterName-output.txt
