@@ -1,0 +1,6 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: &&build_namespace
+  labels:
+    name: &&build_namespace

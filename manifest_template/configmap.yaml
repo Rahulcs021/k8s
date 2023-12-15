@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-configmap
+data:
+  BUILD_NAME: "couponsystem"
+  HEALTH: "/health"
+  PORT: "3000"
+  HEALTH_PORT: "3000"
+  ETCD_REQUIRED: "yes"
+  EXTERNAL: "yes"

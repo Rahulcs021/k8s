@@ -1,0 +1,26 @@
+### aws eks update-kubeconfig --name  $CLUSTER_NAME --region $REGION --role-arn $MASTER_ROLE
+
+
+Dev 2193 EKS Clusters:-
+
+Dev-TBOHPricing: Dev-TBOHPricing --region eu-west-1 --role-arn arn:aws:iam::696292622193:role/Dev-TBOHPricing-DevPricingMastersRoleF2EEE7F3-19QMWJRRIGMKZ
+
+
+
+Prod 662 EKS Clusters:-
+
+TBOH-EKS: TBOH-EKS --region eu-west-1 --role-arn arn:aws:iam::717633479662:role/Prod-TBOHEKS-TBOHEKSMastersRole86B47430-1JFQMFM4H8DDT
+Prod-UAPIHotel: Prod-UAPIHotel --region eu-west-1 --role-arn arn:aws:iam::717633479662:role/Prod-UAPIHotel-ProdUAPIHotelMastersRole229C5D01-1UBXTBM3BL0YN
+
+
+
+Prod 540 EKS Clusters
+
+Dev-TBOI-EKS: Dev-TBOI-EKS --region ap-south-1 --role-arn arn:aws:iam::751067739450:role/Dev-TBOIEKS-DevTBOIEKSMasterRoleE989C514-18RXI1AI9SZBM
+
+
+
+
+Notes:-
+
+aws ecr create-repository --repository-name repository_name --region eu-west-1 --profile prod

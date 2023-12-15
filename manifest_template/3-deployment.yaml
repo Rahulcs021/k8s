@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: &&build_deployment
+  namespace: &&build_namespace
+spec:
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: &&build_deployment
+      # replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 10%
+      maxUnavailable: 10%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: &&build_deployment
+    spec:
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - &&build_deployment
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      containers:
+      - name: &&build_deployment
+        image: &&account.dkr.ecr.&&region.amazonaws.com/&&build_repo:&&environment-9
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+          name: &&build_deployment-env-cm
+        livenessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          httpGet:
+            path: &&health
+            port: &&health_port
+        readinessProbe:
+          httpGet:
+            path: &&health
+            port: &&health_port
+          successThreshold: 5
+          failureThreshold: 5
+          initialDelaySeconds: 5
+        resources:
+          limits:
+            memory: "&&mem_limit"
+            cpu: "&&cpu_limit"
+          requests:
+            cpu: "&&cpu_request"
+            memory: "&&mem_request"
+        ports:
+        - containerPort: &&port
+      nodeSelector:
+        app: &&nodegroup_name  

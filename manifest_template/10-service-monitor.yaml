@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: &&build_deployment-service-mon
+  namespace: &&build_namespace
+  labels:
+    release: prometheus
+    app: prometheus
+spec:
+  jobLabel: job
+  endpoints:
+    - interval: 300s
+      port: &&build_deployment-health-port
+      path: /metrics
+  selector:
+    matchLabels:
+      app: &&build_deployment-metrics-api

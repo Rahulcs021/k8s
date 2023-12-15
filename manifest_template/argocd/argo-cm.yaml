@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-repo-cm
+  namespace: argocd
+data:
+  repositories: |
+    - url: git@github.com:your-username/your-repo.git
+      sshPrivateKeySecret:
+        name: argocd-repo-ssh-secret
+        key: sshPrivateKey

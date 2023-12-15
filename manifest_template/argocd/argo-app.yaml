@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: &&build_deployment-&&environment
+  namespace: argocd
+spec:
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: '&&build_deployment'
+  project: default
+  source:
+    repoURL: 'https://devops_tbo:PAT_TOKEN@github.com/&&ORG/&&repo.git'
+    path: '&&build_deployment/&&environment'
+    targetRevision: '&&branch'
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
